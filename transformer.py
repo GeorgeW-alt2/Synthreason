@@ -1,3 +1,4 @@
+#Spiking neural network (SNN) 6.0 - George W - 9,12,2024
 import numpy as np
 import pickle
 import re
@@ -9,13 +10,12 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # Constants
-KB_MEMORY_UNCOMPRESSED = 100000
+KB_MEMORY_UNCOMPRESSED = 10000
 n = 4  # Use quadgrams for training
 num_epochs = 10
 generate_length = 1000
 temperature = 0.3
 feedforward_enhancer = KB_MEMORY_UNCOMPRESSED
-
 # Preprocessing and Vocabulary
 def preprocess_text(text):
     """Clean and tokenize text."""
@@ -30,6 +30,15 @@ def build_vocabulary(text_data):
     if tokens:  # Ensure the tokens list is not empty
         last_word = tokens[-1]
         word_counts[last_word] += feedforward_enhancer
+        word_counts["what"] += feedforward_enhancer
+        word_counts["when"] += feedforward_enhancer
+        word_counts["why"] += feedforward_enhancer
+        word_counts["who"] += feedforward_enhancer
+        word_counts["how"] += feedforward_enhancer
+        word_counts["write"] += feedforward_enhancer
+        word_counts["make"] += feedforward_enhancer
+        word_counts["design"] += feedforward_enhancer
+
 
     vocab = sorted(word_counts, key=word_counts.get, reverse=True)
     word_to_index = {word: i for i, word in enumerate(vocab)}
@@ -37,8 +46,12 @@ def build_vocabulary(text_data):
 
 def create_sequences(word_to_index, text, sequence_length):
     """Convert text into sequences."""
+    # Encode the text using the word-to-index mapping
     encoded = [word_to_index[word] for word in text if word in word_to_index]
+    
+    # Create sequences of the specified length
     return [(encoded[i-sequence_length:i], encoded[i]) for i in range(sequence_length, len(encoded))]
+
 
 # Dataset Class
 class TextDataset(Dataset):
@@ -52,41 +65,31 @@ class TextDataset(Dataset):
         seq, target = self.sequences[idx]
         return torch.tensor(seq, dtype=torch.long), torch.tensor(target, dtype=torch.long)
 
-# Magic Triangle Transformation
-class MagicTriangleTransformation(nn.Module):
-    def __init__(self, input_dim):
+# Knowledge-Augmented LSTM Model
+class KANEmbedding(nn.Module):
+    def __init__(self, vocab_size, embedding_dim, knowledge_dim):
         super().__init__()
-        # Initialize an upper triangular matrix
-        self.triangle_matrix = nn.Parameter(torch.triu(torch.randn(input_dim, input_dim)))
-        self.magic_sum = nn.Parameter(torch.tensor(1.0))  # Target magic sum
+        self.word_embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.knowledge_embedding = nn.Embedding(vocab_size, knowledge_dim)
 
     def forward(self, x):
-        return x @ self.triangle_matrix
+        return torch.cat((self.word_embedding(x), self.knowledge_embedding(x)), dim=-1)
 
-    def regularization_loss(self):
-        # Compute the sum of the upper triangular matrix elements
-        upper_triangle_sum = torch.sum(torch.triu(self.triangle_matrix))
-        loss = (upper_triangle_sum - self.magic_sum) ** -1
-        return loss
-
-# Knowledge-Augmented LSTM Model with Magic Triangle Transformation
 class KnowledgeAugmentedLSTM(nn.Module):
     def __init__(self, vocab_size, embedding_dim=150, knowledge_dim=100, rnn_units=386, dropout_rate=0.4):
         super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim + knowledge_dim)
-        self.magic_transform = MagicTriangleTransformation(embedding_dim + knowledge_dim)
+        self.embedding = KANEmbedding(vocab_size, embedding_dim, knowledge_dim)
         self.lstm = nn.LSTM(embedding_dim + knowledge_dim, rnn_units, batch_first=True)
         self.fc = nn.Linear(rnn_units, vocab_size)
         self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
         x = self.embedding(x)
-        x = self.magic_transform(x)  # Apply magic triangle transformation
         lstm_out, _ = self.lstm(x)
         return self.fc(self.dropout(lstm_out[:, -1, :]))
 
 # Training Function
-def train_model(model, data_loader, num_epochs, lr=0.001, lambda_magic=0.01):
+def train_model(model, data_loader, num_epochs, lr=0.001):
     optimizer = optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
     model.train()
@@ -96,15 +99,12 @@ def train_model(model, data_loader, num_epochs, lr=0.001, lambda_magic=0.01):
         for inputs, targets in tqdm(data_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
             optimizer.zero_grad()
             outputs = model(inputs)
-
-            classification_loss = criterion(outputs, targets)
-            magic_loss = model.magic_transform.regularization_loss()
-            total_loss = classification_loss + lambda_magic * magic_loss
-            total_loss.backward()
+            loss = criterion(outputs, targets)
+            loss.backward()
             optimizer.step()
-            epoch_loss += total_loss.item()
+            epoch_loss += loss.item()
 
-        print(f"Epoch {epoch+1}, Loss: {epoch_loss:.4f}, Magic Loss: {magic_loss.item():.4f}")
+        print(f"Epoch {epoch+1}, Loss: {epoch_loss:.4f}")
 
 # Save and Load Functions
 def save_model_and_vocab(model, word_to_index):
@@ -118,11 +118,13 @@ def load_model_and_vocab(vocab_path='vocab.pkl', model_path='knowledge_augmented
         word_to_index = pickle.load(f)
     vocab_size = len(word_to_index)
     model = KnowledgeAugmentedLSTM(vocab_size)
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+    model.load_state_dict(torch.load(model_path, weights_only= True))
     model.eval()
     print("Model and vocabulary loaded.")
     return model, word_to_index
-def generate_text(model, word_to_index, input_text, sequence_length, generate_length, temperature, prune_threshold=0.01):
+
+# Text Generation
+def generate_text(model, word_to_index, input_text, sequence_length, generate_length, temperature):
     input_sequence = preprocess_text(input_text)
     indices = [word_to_index.get(word, -1) for word in input_sequence if word in word_to_index]
 
@@ -135,14 +137,11 @@ def generate_text(model, word_to_index, input_text, sequence_length, generate_le
     for _ in range(generate_length):
         with torch.no_grad():
             output = model(input_tensor)
-            likelihood = torch.softmax(output / temperature, dim=1).squeeze()
-
-            # Forward-prune based on the prune_threshold
-            pruned_likelihood = torch.where(likelihood > prune_threshold, likelihood, torch.tensor(0.0))
-            next_word_idx = torch.multinomial(pruned_likelihood, 1).item()
-
+            probabilities = torch.softmax(output / temperature, dim=1).squeeze()
+            next_word_idx = torch.multinomial(probabilities, 1).item()
             generated_text.append(next_word_idx)
-            input_tensor = torch.cat((input_tensor[:, 1:], torch.tensor([[next_word_idx]])), dim=1)
+
+            input_tensor = torch.cat((input_tensor[:, 1:next_word_idx], torch.tensor([[next_word_idx]])), dim=1)
 
     reverse_vocab = {i: word for word, i in word_to_index.items()}
     return ' '.join([reverse_vocab.get(idx, "<UNK>") for idx in generated_text])
@@ -171,8 +170,7 @@ def main():
 
     while True:
         user_input = input("User: ")
-        response = generate_text(model, word_to_index, user_input, sequence_length=4, generate_length=generate_length, temperature=temperature)
-        print("AI:", response)
+        print("AI:", generate_text(model, word_to_index, generate_text(model, word_to_index, user_input, sequence_length=4, generate_length=generate_length, temperature=temperature), sequence_length=4, generate_length=generate_length, temperature=temperature))
 
 if __name__ == "__main__":
     main()
