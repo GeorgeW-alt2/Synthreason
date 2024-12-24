@@ -1,4 +1,4 @@
-#Spiking neural network (SNN) 6.0 - George W - 9,12,2024
+#Spiking neural network (SNN) 7.0 - George W - 24,12,2024
 import numpy as np
 import pickle
 import re
@@ -10,7 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # Constants
-KB_MEMORY_UNCOMPRESSED = 10000
+KB_MEMORY_UNCOMPRESSED = 1000
 n = 4  # Use quadgrams for training
 num_epochs = 10
 generate_length = 1000
@@ -30,14 +30,7 @@ def build_vocabulary(text_data):
     if tokens:  # Ensure the tokens list is not empty
         last_word = tokens[-1]
         word_counts[last_word] += feedforward_enhancer
-        word_counts["what"] += feedforward_enhancer
-        word_counts["when"] += feedforward_enhancer
-        word_counts["why"] += feedforward_enhancer
-        word_counts["who"] += feedforward_enhancer
-        word_counts["how"] += feedforward_enhancer
-        word_counts["write"] += feedforward_enhancer
-        word_counts["make"] += feedforward_enhancer
-        word_counts["design"] += feedforward_enhancer
+       
 
 
     vocab = sorted(word_counts, key=word_counts.get, reverse=True)
@@ -74,7 +67,32 @@ class KANEmbedding(nn.Module):
 
     def forward(self, x):
         return torch.cat((self.word_embedding(x), self.knowledge_embedding(x)), dim=-1)
+import torch
+from torch.autograd import Function
 
+class CustomLossFunction(Function):
+    @staticmethod
+    def forward(ctx, outputs, targets):
+        """
+        Forward pass for custom loss.
+        Save variables for backward computation using `ctx.save_for_backward`.
+        """
+        ctx.save_for_backward(outputs, targets)
+        # Example: Custom loss calculation (e.g., mean squared error)
+        loss = (outputs.min() * targets.min() / -1) / (outputs.min() * targets.max()) / targets
+        return loss
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        Backward pass for custom gradients.
+        Use saved variables to compute the gradient of the loss with respect to inputs.
+        """
+        outputs, targets = ctx.saved_tensors
+        grad_outputs = (outputs.min() * targets.min() / -1) / (outputs.min() * targets.max()) / targets
+        # Multiply by the incoming gradient (chain rule)
+        grad_outputs *= grad_output
+        return grad_outputs, None  # Return gradients for all inputs to forward
 class KnowledgeAugmentedLSTM(nn.Module):
     def __init__(self, vocab_size, embedding_dim=150, knowledge_dim=100, rnn_units=386, dropout_rate=0.4):
         super().__init__()
@@ -87,8 +105,7 @@ class KnowledgeAugmentedLSTM(nn.Module):
         x = self.embedding(x)
         lstm_out, _ = self.lstm(x)
         return self.fc(self.dropout(lstm_out[:, -1, :]))
-
-# Training Function
+        
 def train_model(model, data_loader, num_epochs, lr=0.001):
     optimizer = optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss()
@@ -97,8 +114,14 @@ def train_model(model, data_loader, num_epochs, lr=0.001):
     for epoch in range(num_epochs):
         epoch_loss = 0
         for inputs, targets in tqdm(data_loader, desc=f"Epoch {epoch+1}/{num_epochs}"):
+            # Debug shapes
+
             optimizer.zero_grad()
             outputs = model(inputs)
+
+            # Ensure output shape matches target shape
+            assert outputs.shape[0] == targets.shape[0], "Batch sizes do not match."
+            
             loss = criterion(outputs, targets)
             loss.backward()
             optimizer.step()
