@@ -1,4 +1,4 @@
-#Spiking neural network (SNN) 7.3 - George W - 24,12,2024
+#Spiking neural network (SNN) 7.31 - George W - 24,12,2024
 import numpy as np
 import pickle
 import re
@@ -10,7 +10,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 
 # Constants
-KB_MEMORY_UNCOMPRESSED = 500000
+KB_MEMORY_UNCOMPRESSED = 50000
 n = 4  # Use quadgrams for training
 num_epochs = 10
 generate_length = 1000
