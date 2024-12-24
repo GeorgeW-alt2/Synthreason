@@ -1,4 +1,4 @@
-#Spiking neural network (SNN) 7.1 - George W - 24,12,2024
+#Spiking neural network (SNN) 7.2 - George W - 24,12,2024
 import numpy as np
 import pickle
 import re
@@ -79,7 +79,7 @@ class CustomLossFunction(Function):
         """
         ctx.save_for_backward(outputs, targets)
         # Example: Custom loss calculation (e.g., mean squared error)
-        loss = (outputs.min() * targets.min() / -1) / (outputs.min() * targets.max()) / targets
+        loss = (outputs.min() * targets.min() / -1) / (outputs.min() * targets.max()) / (outputs.min() * targets)
         return loss
 
     @staticmethod
@@ -89,7 +89,7 @@ class CustomLossFunction(Function):
         Use saved variables to compute the gradient of the loss with respect to inputs.
         """
         outputs, targets = ctx.saved_tensors
-        grad_outputs = (outputs.min() * targets.min() / -1) / (outputs.min() * targets.max()) / targets
+        grad_outputs = (outputs.min() * targets.min() / -1) / (outputs.min() * targets.max()) / (outputs.min() * targets)
         # Multiply by the incoming gradient (chain rule)
         grad_outputs *= grad_output
         return grad_outputs, None  # Return gradients for all inputs to forward
