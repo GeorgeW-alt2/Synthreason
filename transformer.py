@@ -8,7 +8,7 @@ import os
 import json
 
 # Constants
-KB_MEMORY_UNCOMPRESSED = 10000
+KB_MEMORY_UNCOMPRESSED = 5000
 SEQUENCE_LENGTH = 3
 NUM_EPOCHS = 10
 GENERATE_LENGTH = 1000
@@ -16,21 +16,12 @@ TEMPERATURE = 0.7
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 MODEL_DIRECTORY = "saved_models"
-# Fuel class for handling fuel-modified dot products
-class Fuel(nn.Module):
-    def __init__(self, fuel_factor=0.3):
-        super(Fuel, self).__init__()
-        self.fuel_factor = fuel_factor
-    
-    def forward(self, tensor):
-        return tensor * self.fuel_factor  # Modify the tensor by multiplying with fuel_factor
 
 class TextGenerator(nn.Module):
-    def __init__(self, input_size, hidden_sizes, output_size, fuel_factor=1.0):
+    def __init__(self, input_size, hidden_sizes, output_size):
         super(TextGenerator, self).__init__()
         
         # Initialize fuel
-        self.fuel = Fuel(fuel_factor)
         
         # Build layers dynamically
         layers = []
@@ -51,10 +42,9 @@ class TextGenerator(nn.Module):
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):
-        # Apply fuel to each dot product inside the model
         for layer in self.model:
             if isinstance(layer, nn.Linear):
-                x = self.fuel(layer(x))  # Modify dot products by applying fuel
+                x = layer(x) # Modify dot products by applying fuel
             else:
                 x = layer(x)
         return x
@@ -99,7 +89,7 @@ def load_model(model_name, hidden_sizes, fuel_factor=1.0, directory=MODEL_DIRECT
     vocab_size = len(word_to_index)
     
     # Create and load model
-    model = TextGenerator(input_size, hidden_sizes, vocab_size, fuel_factor=fuel_factor)
+    model = TextGenerator(input_size, hidden_sizes, vocab_size)
     model.load_state_dict(torch.load(model_path, weights_only=True))
     
     return model, word_to_index, index_to_word, vocab_size
@@ -263,7 +253,7 @@ def main():
         X, y, word_to_index, index_to_word, vocab_size = create_dataset_from_text(text, SEQUENCE_LENGTH)
         input_size = X.shape[1]
         # Create model
-        model = TextGenerator(input_size, hidden_sizes, vocab_size, fuel_factor=1.0)  # Set fuel factor during creation
+        model = TextGenerator(input_size, hidden_sizes, vocab_size)  # Set fuel factor during creation
         
         # Create data loader
         dataset = TensorDataset(X, y)
