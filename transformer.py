@@ -16,10 +16,21 @@ TEMPERATURE = 0.7
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
 MODEL_DIRECTORY = "saved_models"
+# Fuel class for handling fuel-modified dot products
+class Fuel(nn.Module):
+    def __init__(self, fuel_factor=0.3):
+        super(Fuel, self).__init__()
+        self.fuel_factor = fuel_factor
+    
+    def forward(self, tensor):
+        return tensor * self.fuel_factor  # Modify the tensor by multiplying with fuel_factor
 
 class TextGenerator(nn.Module):
-    def __init__(self, input_size, hidden_sizes, output_size):
+    def __init__(self, input_size, hidden_sizes, output_size, fuel_factor=1.0):
         super(TextGenerator, self).__init__()
+        
+        # Initialize fuel
+        self.fuel = Fuel(fuel_factor)
         
         # Build layers dynamically
         layers = []
@@ -40,7 +51,13 @@ class TextGenerator(nn.Module):
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):
-        return self.model(x)
+        # Apply fuel to each dot product inside the model
+        for layer in self.model:
+            if isinstance(layer, nn.Linear):
+                x = self.fuel(layer(x))  # Modify dot products by applying fuel
+            else:
+                x = layer(x)
+        return x
 
 def save_model(model, word_to_index, index_to_word, model_name, input_size, directory=MODEL_DIRECTORY):
     """Save the model, vocabulary mappings, and model configuration."""
@@ -63,7 +80,7 @@ def save_model(model, word_to_index, index_to_word, model_name, input_size, dire
     
     print(f"Model and configuration saved to {directory}")
 
-def load_model(model_name, hidden_sizes, directory=MODEL_DIRECTORY):
+def load_model(model_name, hidden_sizes, fuel_factor=1.0, directory=MODEL_DIRECTORY):
     """Load the model, vocabulary mappings, and model configuration."""
     model_path = os.path.join(directory, f"{model_name}_model.pth")
     config_path = os.path.join(directory, f"{model_name}_config.json")
@@ -82,10 +99,11 @@ def load_model(model_name, hidden_sizes, directory=MODEL_DIRECTORY):
     vocab_size = len(word_to_index)
     
     # Create and load model
-    model = TextGenerator(input_size, hidden_sizes, vocab_size)
-    model.load_state_dict(torch.load(model_path,weights_only=True))
+    model = TextGenerator(input_size, hidden_sizes, vocab_size, fuel_factor=fuel_factor)
+    model.load_state_dict(torch.load(model_path, weights_only=True))
     
     return model, word_to_index, index_to_word, vocab_size
+
 
 def create_dataset_from_text(text, sequence_length):
     # Tokenize and create vocabulary
@@ -152,6 +170,8 @@ def generate_text(model, seed_text, word_to_index, index_to_word, vocab_size, se
     
     current_sequence = words[-sequence_length:]
     generated_words = []
+    full_stop_count = 0  # To count full stops (periods)
+    word_correlation = {}  # Dictionary to keep track of recent correlations
     
     with torch.no_grad():
         for _ in range(num_words):
@@ -173,15 +193,44 @@ def generate_text(model, seed_text, word_to_index, index_to_word, vocab_size, se
             scaled_logits = logits / temperature
             probs = F.softmax(scaled_logits, dim=-1)
             
+            # Apply uniform adjustment after encountering full stops
+            if full_stop_count > 0:
+                uniform_prob = 1.0 / vocab_size
+                probs = (1 - 0.1) * probs + 0.1 * uniform_prob  # Blend with uniform distribution
+            
+            # Update probabilities based on word correlations (correlation with last word)
+            if len(generated_words) > 1:
+                last_word = generated_words[-2]
+                correlation_key = f"{last_word}_{current_sequence[-3]}"
+                if correlation_key in word_correlation:
+                    correlation_strength = word_correlation[correlation_key]
+                    # Boost probability for correlated word pairs
+                    for i in range(vocab_size):
+                        word = index_to_word[i]
+                        if word == generated_words[-1] and generated_words[-3] != word:
+                            probs[0, i] += correlation_strength * 0.1  # Increase likelihood of correlated word
+                
             # Sample from the distribution
             next_word_idx = torch.multinomial(probs, 1).item()
             next_word = index_to_word[next_word_idx]
             
             generated_words.append(next_word)
+            
+            # Track correlations of recent words (simplified)
+            if len(generated_words) > 1:
+                last_word = generated_words[-2]
+                correlation_key = f"{last_word}_{next_word}"
+                word_correlation[correlation_key] = word_correlation.get(correlation_key, 0) + 1
+            
+            # Update sequence for next iteration
             current_sequence = current_sequence[1:] + [next_word]
     
+    print("Word correlations:", word_correlation)
     return ' '.join(generated_words)
 
+    
+    print("Word correlations:", word_correlation)
+    return ' '.join(generated_words)
 def main():
     model_name = "text_generator_v1"
     hidden_sizes = [512, 256]
@@ -198,14 +247,13 @@ def main():
         print(f"Error reading file: {e}")
         return
 
-    
-    
     # Try to load saved model
     try:
         print("Attempting to load saved model...")
         model, word_to_index, index_to_word, vocab_size = load_model(
             model_name,
-            hidden_sizes=hidden_sizes
+            hidden_sizes=hidden_sizes,
+            fuel_factor=1.0  # Example fuel factor value
         )
         print("Model loaded successfully!")
     except FileNotFoundError:
@@ -215,7 +263,7 @@ def main():
         X, y, word_to_index, index_to_word, vocab_size = create_dataset_from_text(text, SEQUENCE_LENGTH)
         input_size = X.shape[1]
         # Create model
-        model = TextGenerator(input_size, hidden_sizes, vocab_size)
+        model = TextGenerator(input_size, hidden_sizes, vocab_size, fuel_factor=1.0)  # Set fuel factor during creation
         
         # Create data loader
         dataset = TensorDataset(X, y)
@@ -229,7 +277,7 @@ def main():
         save_model(model, word_to_index, index_to_word, model_name, input_size)
     
     while True:
-        seed_text = input("User:")
+        seed_text = input("User: ")
         try:
             generated_text = generate_text(
                 model, 
