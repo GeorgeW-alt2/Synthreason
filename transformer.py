@@ -44,7 +44,7 @@ class TextGenerator(nn.Module):
     def forward(self, x):
         for layer in self.model:
             if isinstance(layer, nn.Linear):
-                x = layer(x) # Modify dot products by applying fuel
+                x = layer(x) 
             else:
                 x = layer(x)
         return x
@@ -182,11 +182,6 @@ def generate_text(model, seed_text, word_to_index, index_to_word, vocab_size, se
             # Apply temperature
             scaled_logits = logits / temperature
             probs = F.softmax(scaled_logits, dim=-1)
-            
-            # Apply uniform adjustment after encountering full stops
-            if full_stop_count > 0:
-                uniform_prob = 1.0 / vocab_size
-                probs = (1 - 0.1) * probs + 0.1 * uniform_prob  # Blend with uniform distribution
             
             # Update probabilities based on word correlations (correlation with last word)
             if len(generated_words) > 1:
