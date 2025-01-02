@@ -215,11 +215,6 @@ def generate_text(model, seed_text, word_to_index, index_to_word, vocab_size, se
             # Update sequence for next iteration
             current_sequence = current_sequence[1:] + [next_word]
     
-    print("Word correlations:", word_correlation)
-    return ' '.join(generated_words)
-
-    
-    print("Word correlations:", word_correlation)
     return ' '.join(generated_words)
 def main():
     model_name = "text_generator_v1"
