@@ -190,7 +190,6 @@ def generate_text(model, seed_text, word_to_index, index_to_word, vocab_size, se
     generated_words = []
     full_stop_count = 0  # To count full stops (periods)
     word_correlation = {}  # Dictionary to keep track of recent correlations
-
     with torch.no_grad():
         for _ in range(num_words):
             # Convert current sequence to tensor
@@ -262,8 +261,6 @@ def main():
     while True:
         seed_text = input("User: ")
 
-        # Generate text
-        seed_text = "This is a test"
         generated_text = generate_text(model, seed_text, word_to_index, index_to_word, vocab_size, SEQUENCE_LENGTH, 
                                       GENERATE_LENGTH, TEMPERATURE)
         print("Generated text:")
