@@ -6,17 +6,20 @@ import torch.nn.functional as F
 import numpy as np
 import os
 import json
-
+model_name = "text_generator_v3"
+    
+filename = 'test.txt'
 # Constants
-KB_MEMORY_UNCOMPRESSED = 5000
+KB_MEMORY_UNCOMPRESSED = 1000
 SEQUENCE_LENGTH = 3
 NUM_EPOCHS = 10
 GENERATE_LENGTH = 1000
 TEMPERATURE = 0.7
 BATCH_SIZE = 32
 LEARNING_RATE = 0.001
-MODEL_DIRECTORY = "saved_models"
+HIDDEN_SIZE_orig = 512
 
+MODEL_DIRECTORY = "saved_models"
 class TextGenerator(nn.Module):
     def __init__(self, input_size, hidden_sizes, output_size):
         super(TextGenerator, self).__init__()
@@ -98,7 +101,7 @@ def save_model(model, word_to_index, index_to_word, model_name, input_size, dire
 
     print(f"Model and configuration saved to {directory}")
 
-def load_model(model_name, hidden_sizes, fuel_factor=1.0, directory=MODEL_DIRECTORY):
+def load_model(model_name, hidden_sizes, directory=MODEL_DIRECTORY):
     """Load the model, vocabulary mappings, and model configuration."""
     model_path = os.path.join(directory, f"{model_name}_model.pth")
     config_path = os.path.join(directory, f"{model_name}_config.json")
@@ -222,10 +225,8 @@ def generate_text(model, seed_text, word_to_index, index_to_word, vocab_size, se
     return ' '.join(generated_words)
 
 def main():
-    model_name = "text_generator_v1"
-    hidden_sizes = [512, 1858 ]
 
-    filename = 'test.txt'
+
     # First, try to load the training data to get vocabulary size
     try:
         with open(filename, 'r', encoding='utf-8') as file:
@@ -240,15 +241,21 @@ def main():
     # Try to load saved model
     try:
         print("Attempting to load saved model...")
+        with open("vocab_size.txt", "r") as f:
+            vocab_size = int(f.read())
         model, word_to_index, index_to_word, vocab_size = load_model(
             model_name,
-            hidden_sizes=hidden_sizes,
-            fuel_factor=1.0  # Optional parameter
+            hidden_sizes=[HIDDEN_SIZE_orig,vocab_size]
         )
+        
     except FileNotFoundError:
         print("Model not found, starting training...")
         # Prepare dataset and train model
         X, y, word_to_index, index_to_word, vocab_size = create_dataset_from_text(text, SEQUENCE_LENGTH)
+        with open("vocab_size.txt", "w") as f:
+            f.write(str(vocab_size))
+        hidden_sizes = [HIDDEN_SIZE_orig, vocab_size ]
+
         dataset = TensorDataset(X, y)
         data_loader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True)
 
